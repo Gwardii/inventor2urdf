@@ -1,5 +1,6 @@
 Public Sub inventor2urdf()
 
+    ros_package_name = "ExoReha"
     ros_files_dir_name = "description"
     file_separator = "\"
     
@@ -19,7 +20,7 @@ Public Sub inventor2urdf()
     ros_files_dir_path = Join(Array(dir_path, ros_files_dir_name), file_separator)
     myMkDir (ros_files_dir_path)
     Dim stl_dir_path As String
-    stl_dir_path = Join(Array(ros_files_dir_path, "stl"), file_separator)
+    stl_dir_path = Join(Array(ros_files_dir_path, "mesh"), file_separator)
     
     Dim part_docs As Variant
     Set part_docs = assembly.ReferencedDocuments
@@ -41,19 +42,40 @@ Public Sub inventor2urdf()
     Print #1, "<?xml version=""1.0""?>"
     Print #1, Join(Array("<robot name=", Left(assembly_name, Len(assembly_name) - 4), ">"), """")
         For Each occurence In all_occurrences
-            Dim occ_name As String
-            occ_name = occurence.Name
-            'temp = Join(Array("<link name=", occ_name), "")
+            Dim mesh_name As String
             Print #1, Spc(2); Join(Array("<link name=", occurence.Name, ">"), """")
             Print #1, Spc(4); "<visual>"
             Print #1, Spc(6); "<geometry>"
-            
-            Print #1, Spc(8); "<mesh/>"
+            mesh_name = occurence.Definition.Document.DisplayName
+            mesh_name = Join(Array(Left(mesh_name, Len(mesh_name) - 3), "stl"), "")
+            Print #1, Spc(8); Join(Array("<mesh filename=""package://",ros_package_name,"/description/meshes/", mesh_name,""" />"), "")
             
             Print #1, Spc(6); "</geometry>"
             Print #1, Spc(4); "</visual>"
             Print #1, Spc(2); "</link>"
         Next
+
+        Dim iter As Integer
+        iter = 1
+
+        For Each joint In assembly_def.Joints
+            Print #1, Spc(2); Join(Array("<link name=""aux_link_", iter, """/>"), "")
+            Print #1, Spc(2); Join(Array("<joint name=""aux_fixed_joint",iter, """ type=""fixed"">"), "")
+            Print #1, Spc(4); Join(Array("<parent link=""",joint.OccurrenceOne.Name,"""/>"), "")
+            Print #1, Spc(4); Join(Array("<child link=""aux_link_",iter,"""/>"), "")
+            Print #1, Spc(4); Join(Array("<origin xyz=""",joint.Definition.OriginOne.Point.X,joint.Definition.OriginOne.Point.Y,joint.Definition.OriginOne.Point.Z,"""/>"), " ")
+            Print #1, Spc(2); "</joint>"
+            Print #1, Spc(2); Join(Array("<joint name=""", joint.Name, """ type=""continuous"">"), "")
+            Print #1, Spc(4); Join(Array("<parent link=""aux_link_",iter,"""/>"), "")
+            Print #1, Spc(4); Join(Array("<child link=""",joint.OccurrenceTwo.Name,"""/>"), "")
+            Print #1, Spc(4); Join(Array("<origin xyz=""",-joint.Definition.OriginTwo.Point.X,-joint.Definition.OriginTwo.Point.Y,-joint.Definition.OriginTwo.Point.Z,"""/>"), " ")
+            Print #1, Spc(4); Join(Array("<axis xyz=""", joint.Definition.OriginTwo.Geometry.Geometry.Normal.X, joint.Definition.OriginTwo.Geometry.Geometry.Normal.Y, joint.Definition.OriginTwo.Geometry.Geometry.Normal.Z, """/>"), " ")
+
+            Print #1, Spc(2); "</joint>"
+            iter = iter+1
+        Next
+
+
     Print #1, "</robot>"
     Close #1
     
