@@ -1,6 +1,6 @@
 Public Sub inventor2urdf()
 
-    ros_package_name = "ExoReha"
+    ros_package_name = "ros_exoreha"
     ros_files_dir_name = "description"
     file_separator = "\"
     
@@ -39,6 +39,13 @@ Public Sub inventor2urdf()
     Set all_occurrences = assembly_def.Occurrences
     Dim temp As String
     Dim occurence As ComponentOccurrence
+    Dim color_array() As Integer
+    Dim no_colors As Integer
+    no_colors = all_occurrences.Count
+    ReDim color_array(no_colors - 1, 2)
+    Call getColorSet(no_colors, color_array)
+    Dim iter As Integer
+    iter = 0
     Print #1, "<?xml version=""1.0""?>"
     Print #1, Join(Array("<robot name=", Left(assembly_name, Len(assembly_name) - 4), ">"), """")
         For Each occurence In all_occurrences
@@ -48,31 +55,45 @@ Public Sub inventor2urdf()
             Print #1, Spc(6); "<geometry>"
             mesh_name = occurence.Definition.Document.DisplayName
             mesh_name = Join(Array(Left(mesh_name, Len(mesh_name) - 3), "stl"), "")
-            Print #1, Spc(8); Join(Array("<mesh filename=""package://",ros_package_name,"/description/meshes/", mesh_name,""" />"), "")
+            Print #1, Spc(8); Join(Array("<mesh filename=""package://", ros_package_name, "/description/mesh/", mesh_name, """/>"), "")
             
             Print #1, Spc(6); "</geometry>"
+            Print #1, Spc(6); Join(Array("<material name=""color_",iter,""">"),"")
+            Print #1, Spc(8); Join(Array("<color rgba=""", color_array(iter, 0) / 255, color_array(iter, 1) / 255, color_array(iter, 2) / 255, 1, """/>"), " ")
+            Print #1, Spc(6); "</material>"
+
             Print #1, Spc(4); "</visual>"
             Print #1, Spc(2); "</link>"
+            iter = iter + 1
         Next
 
-        Dim iter As Integer
         iter = 1
-
+        Dim type_ As String
+        
         For Each joint In assembly_def.Joints
-            Print #1, Spc(2); Join(Array("<link name=""aux_link_", iter, """/>"), "")
-            Print #1, Spc(2); Join(Array("<joint name=""aux_fixed_joint",iter, """ type=""fixed"">"), "")
-            Print #1, Spc(4); Join(Array("<parent link=""",joint.OccurrenceOne.Name,"""/>"), "")
-            Print #1, Spc(4); Join(Array("<child link=""aux_link_",iter,"""/>"), "")
-            Print #1, Spc(4); Join(Array("<origin xyz=""",joint.Definition.OriginOne.Point.X,joint.Definition.OriginOne.Point.Y,joint.Definition.OriginOne.Point.Z,"""/>"), " ")
-            Print #1, Spc(2); "</joint>"
-            Print #1, Spc(2); Join(Array("<joint name=""", joint.Name, """ type=""continuous"">"), "")
-            Print #1, Spc(4); Join(Array("<parent link=""aux_link_",iter,"""/>"), "")
-            Print #1, Spc(4); Join(Array("<child link=""",joint.OccurrenceTwo.Name,"""/>"), "")
-            Print #1, Spc(4); Join(Array("<origin xyz=""",-joint.Definition.OriginTwo.Point.X,-joint.Definition.OriginTwo.Point.Y,-joint.Definition.OriginTwo.Point.Z,"""/>"), " ")
+            If joint.Definition.JointType = kSlideJointType Then
+                type_ = "prismatic"
+            ElseIf joint.Definition.JointType = kRotationalJointType Then
+                type_ = "continuous"
+            End If
+            Print #1, Spc(2); Join(Array("<joint name=""", joint.Name, """", " type=""", type_, """>"), "")
+            Print #1, Spc(4); Join(Array("<parent link=""", joint.OccurrenceOne.Name, """/>"), "")
+            Print #1, Spc(4); Join(Array("<child link=""aux_link_", iter, """/>"), "")
+            Print #1, Spc(4); Join(Array("<origin xyz=""", joint.Definition.OriginTwo.Point.X * 10, joint.Definition.OriginTwo.Point.Y * 10, joint.Definition.OriginTwo.Point.Z * 10, """/>"), " ")
             Print #1, Spc(4); Join(Array("<axis xyz=""", joint.Definition.OriginTwo.Geometry.Geometry.Normal.X, joint.Definition.OriginTwo.Geometry.Geometry.Normal.Y, joint.Definition.OriginTwo.Geometry.Geometry.Normal.Z, """/>"), " ")
+            If joint.Definition.JointType = kSlideJointType Then
+                Print #1, Spc(4); "<limit lower=""-20"" upper=""20"" velocity=""100"" effort=""100""/> "
+            End If
 
             Print #1, Spc(2); "</joint>"
-            iter = iter+1
+            Print #1, Spc(2); Join(Array("<link name=""aux_link_", iter, """/>"), "")
+            Print #1, Spc(2); Join(Array("<joint name=""aux_fixed_joint", iter, """ type=""fixed"">"), "")
+            Print #1, Spc(4); Join(Array("<parent link=""aux_link_", iter, """/>"), "")
+            Print #1, Spc(4); Join(Array("<child link=""", joint.OccurrenceTwo.Name, """/>"), "")
+            Print #1, Spc(4); Join(Array("<origin xyz=""", -joint.Definition.OriginOne.Point.X * 10, -joint.Definition.OriginOne.Point.Y * 10, -joint.Definition.OriginOne.Point.Z * 10, """/>"), " ")
+            Print #1, Spc(2); "</joint>"
+            
+            iter = iter + 1
         Next
 
 
@@ -101,7 +122,24 @@ Function exportToStl(part As PartDocument, dir_path_to_save As String, Optional 
     part_name = part.DisplayName
     part_name = Replace(part_name, ".ipt", ".stl")
     path_to_save = Join(Array(dir_path_to_save, part_name), file_sep)
-    Call part.SaveAs(path_to_save, True)
+
+
+    Dim oTranslator As TranslatorAddIn
+    Set oTranslator = ThisApplication.ApplicationAddIns.ItemById("{533E9A98-FC3B-11D4-8E7E-0010B541CD80}")
+    Dim oContext As TranslationContext
+    Set oContext = ThisApplication.TransientObjects.CreateTranslationContext
+    Dim oOptions As NameValueMap
+    Set oOptions = ThisApplication.TransientObjects.CreateNameValueMap
+    If oTranslator.HasSaveCopyAsOptions(part, oContext, oOptions) Then
+        oOptions.Value("ExportUnits") = 5 'Millimeter
+        oOptions.Value("Resolution") = 0 'High
+        oContext.Type = IOMechanismEnum.kFileBrowseIOMechanism
+        Dim oData As DataMedium
+        Set oData = ThisApplication.TransientObjects.CreateDataMedium
+        oData.FileName = path_to_save
+        Call oTranslator.SaveCopyAs(part, oContext, oOptions, oData)
+    End If
+
 End Function
 
 Function dividePath(path As String, Optional file_sep = "\") As Variant
@@ -156,5 +194,9 @@ Function getColorSet(no_colors As Integer, ByRef output() As Integer)
 BreakLoop:
     
 End Function
+
+
+
+
 
 
